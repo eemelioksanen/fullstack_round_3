@@ -1,12 +1,10 @@
 require('dotenv').config()
-const { response } = require('express')
 const express = require('express')
 const Person = require('./models/person')
 
 const app = express()
 const cors = require('cors')
 var morgan = require('morgan')
-const { default: mongoose } = require('mongoose')
 
 app.use(express.static('build'))
 app.use(express.json())
@@ -15,7 +13,7 @@ app.use(cors())
 app.use(
   morgan(function (tokens, req, res) {
     var content = null
-    if (String(tokens.method(req, res)) == 'POST') {
+    if (String(tokens.method(req, res)) === 'POST') {
       content = JSON.stringify(req.body)
     }
     return [
@@ -41,7 +39,7 @@ app.get('/api/persons/:id', (req, res, next) => {
       if (person) {
         res.json(person)
       } else {
-        response.status(404).end()
+        res.status(404).end()
       }
     })
     .catch(error => next(error))
@@ -49,7 +47,7 @@ app.get('/api/persons/:id', (req, res, next) => {
 
 app.get('/info', (req, res) => {
 
-  Person.countDocuments({}, (err, count) => {
+  Person.countDocuments({}, (err, count, next) => {
     if (err) {
       next(err)
     } else {
@@ -64,7 +62,11 @@ app.get('/info', (req, res) => {
 app.delete('/api/persons/:id', (req, res, next) => {
   Person.findByIdAndDelete(req.params.id)
     .then(person => {
-      res.status(204).end()
+      if (person) {
+        res.status(204).end()
+      } else {
+        res.status(400).json({ error: 'that person was already deleted' })
+      }
     })
     .catch(error => next(error))
 })
@@ -75,12 +77,6 @@ app.post('/api/persons', (req, res, next) => {
     name: req.body.name,
     number: req.body.number
   })
-
-  if (!(person.name && person.number)) {
-    return res.status(400).json({
-      error: 'content missing'
-    })
-  }
 
   person.save().then(updated => {
     res.json(updated)
@@ -96,7 +92,11 @@ app.put('/api/persons/:id', (req, res, next) => {
     number: req.body.number
   }
 
-  Person.findByIdAndUpdate(req.params.id, person_object, { new: true })
+  Person.findByIdAndUpdate(
+    req.params.id,
+    person_object,
+    { new: true, runValidators: true, context: 'query' },
+  )
     .then(updatedPerson => {
       res.json(updatedPerson)
     })
@@ -105,10 +105,14 @@ app.put('/api/persons/:id', (req, res, next) => {
 
 const errorHandler = (error, req, res, next) => {
   if (error.name === 'CastError') {
+    console.log(error.message)
     return res.status(400).send({ error: 'malformatted id' })
-  }
-  if (error.name === 'TypeError') {
-    console.log('that person was already deleted!')
+  } else if (error.name === 'TypeError') {
+    console.log(error.message)
+    return res.status(400).send({ error: error.message })
+  } else if (error.name === 'ValidationError') {
+    console.log(error.message)
+    return res.status(400).send({ error: error.message })
   }
 
   next(error)
@@ -116,6 +120,7 @@ const errorHandler = (error, req, res, next) => {
 
 app.use(errorHandler)
 
+// eslint-disable-next-line no-undef
 const PORT = process.env.PORT
 
 app.listen(PORT, () => {
